@@ -45,6 +45,8 @@ export class MapSourceController {
     this._isSwitching = false;
     this._lastError = null;
     this._imageryLayer = null;
+    this._nightImageryLayer = null;
+    this._hybridSceneState = null;
     this._activeImageryProvider = null;
     this._removeImageryErrorListener = null;
     this._terrainMode = null;
@@ -260,6 +262,21 @@ export class MapSourceController {
   async _activateGlobeStack(stack, gen) {
     const resolution = await this._getImageryProvider(stack);
     if (gen !== this._switchGen) return;
+    const source = this._sources.get(resolution.effectiveStackId);
+    const nightProvider = source?.nightImagery
+      ? (
+          await this._cached(
+            this._imageryProviders,
+            `${resolution.effectiveStackId}:night`,
+            async () => ({
+              provider: await source.nightImagery({
+                signal: this._abort.signal,
+              }),
+            }),
+          )
+        ).provider
+      : null;
+    if (gen !== this._switchGen) return;
     // Scene shots reapply their map stack at every handoff. Keep the live
     // layer (and its loaded tiles) when the resolved provider is unchanged;
     // rebuilding it exposes the bare globe while imagery loads again.
@@ -272,7 +289,17 @@ export class MapSourceController {
       this._activeImageryProvider = resolution.provider;
       this.viewer.imageryLayers.add(this._imageryLayer, 0);
     }
-    const source = this._sources.get(resolution.effectiveStackId);
+    if (nightProvider) {
+      if (!this._nightImageryLayer) {
+        this._nightImageryLayer = this._createImageryLayer(nightProvider);
+        this._nightImageryLayer.dayAlpha = 0;
+        this._nightImageryLayer.nightAlpha = 1;
+        this.viewer.imageryLayers.add(this._nightImageryLayer, 1);
+      }
+      this._enableHybridLighting();
+    } else {
+      this._removeNightImageryLayer();
+    }
     this._credits.show(source?.credit || null);
     // A repeated request still owns a new switch generation. Rebind its
     // failure listener so fallback remains live without accumulating listeners.
@@ -379,12 +406,43 @@ export class MapSourceController {
   }
 
   _removeImageryLayer() {
+    this._removeNightImageryLayer();
     this._removeImageryErrorListener?.();
     this._removeImageryErrorListener = null;
     if (this._imageryLayer)
       this.viewer.imageryLayers.remove(this._imageryLayer, true);
     this._imageryLayer = null;
     this._activeImageryProvider = null;
+  }
+  _enableHybridLighting() {
+    if (this._hybridSceneState) return;
+    const globe = this.viewer.scene.globe;
+    const clock = this.viewer.clock;
+    this._hybridSceneState = {
+      enableLighting: globe.enableLighting,
+      clockStep: clock.clockStep,
+      shouldAnimate: clock.shouldAnimate,
+      multiplier: clock.multiplier,
+    };
+    globe.enableLighting = true;
+    // SYSTEM_CLOCK keeps the solar boundary at the actual UTC time, even if
+    // the tab has been open through sunrise or the computer has slept.
+    clock.currentTime = Cesium.JulianDate.now();
+    clock.shouldAnimate = true;
+    clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK;
+  }
+  _removeNightImageryLayer() {
+    if (this._nightImageryLayer)
+      this.viewer.imageryLayers.remove(this._nightImageryLayer, true);
+    this._nightImageryLayer = null;
+    if (!this._hybridSceneState) return;
+    const { enableLighting, clockStep, shouldAnimate, multiplier } =
+      this._hybridSceneState;
+    this.viewer.scene.globe.enableLighting = enableLighting;
+    this.viewer.clock.clockStep = clockStep;
+    this.viewer.clock.multiplier = multiplier;
+    this.viewer.clock.shouldAnimate = shouldAnimate;
+    this._hybridSceneState = null;
   }
   _dispose(value) {
     if (!value || this._disposed.has(value)) return;

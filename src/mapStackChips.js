@@ -18,6 +18,8 @@ export const PRESENTED_MAP_STACK_IDS = Object.freeze([
   'bing-aerial',
   'bing-labels',
   'esri-imagery',
+  'nasa-night',
+  'hybrid-day-night',
   'osm',
 ]);
 
@@ -54,7 +56,7 @@ export function mapStackChipModel(stack, activeId) {
     // unavailable chip carries the real reason in its tooltip.
     requirement: !available && requiresIon ? 'ION' : '',
     unavailableHint,
-    title: available ? label : unavailableHint,
+    title: available ? String(stack?.description || label) : unavailableHint,
   };
 }
 

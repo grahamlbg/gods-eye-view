@@ -35,6 +35,16 @@ test('a view round-trips through share-link parameters', () => {
     kind: 'satellite',
     id: '25544',
   });
+  const night = createView({
+    camera: { lat: 54.44, lon: -2.92 },
+    map: 'nasa-night',
+  });
+  assert.equal(viewFromParams(viewToParams(night)).map, 'nasa-night');
+  const hybrid = createView({
+    camera: { lat: 54.44, lon: -2.92 },
+    map: 'hybrid-day-night',
+  });
+  assert.equal(viewFromParams(viewToParams(hybrid)).map, 'hybrid-day-night');
 });
 
 test('views have defaults, bounds, and reject what links cannot carry', () => {

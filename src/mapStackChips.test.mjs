@@ -113,6 +113,20 @@ const CONTROLLER_STACKS = [
     unavailableReason: null,
   },
   {
+    id: 'nasa-night',
+    label: 'NASA Night',
+    requiresIon: false,
+    available: true,
+    unavailableReason: null,
+  },
+  {
+    id: 'hybrid-day-night',
+    label: 'Day / Night',
+    requiresIon: false,
+    available: true,
+    unavailableReason: null,
+  },
+  {
     id: 'osm',
     label: 'OSM',
     requiresIon: false,
@@ -121,7 +135,7 @@ const CONTROLLER_STACKS = [
   },
 ];
 
-test('the row renders exactly the five owner-approved sources', () => {
+test('the row renders the approved sources', () => {
   const container = makeElement();
   renderMapStackChips(container, CONTROLLER_STACKS, {
     activeId: 'photoreal',
@@ -130,13 +144,23 @@ test('the row renders exactly the five owner-approved sources', () => {
 
   assert.deepEqual(
     container.children.map((chip) => chip.dataset.stackId),
-    ['photoreal', 'bing-aerial', 'bing-labels', 'esri-imagery', 'osm'],
+    [
+      'photoreal',
+      'bing-aerial',
+      'bing-labels',
+      'esri-imagery',
+      'nasa-night',
+      'hybrid-day-night',
+      'osm',
+    ],
   );
   assert.deepEqual(container.children.map(chipText), [
     'Google 3D',
     'Bing Aerial',
     'Bing Labels',
     'Esri Satellite',
+    'NASA Night',
+    'Day / Night',
     'OSM',
   ]);
   assert.deepEqual(PRESENTED_MAP_STACK_IDS, [
@@ -144,6 +168,8 @@ test('the row renders exactly the five owner-approved sources', () => {
     'bing-aerial',
     'bing-labels',
     'esri-imagery',
+    'nasa-night',
+    'hybrid-day-night',
     'osm',
   ]);
   assert.ok(
@@ -160,16 +186,19 @@ test('the row renders exactly the five owner-approved sources', () => {
 
 test('internal and future stacks stay outside the approved presentation set', () => {
   const container = makeElement();
-  // A future Hybrid stack may land in the controller, but it must not appear
+  // A future stack may land in the controller, but it must not appear
   // until the owner-approved presentation allowlist explicitly includes it.
-  const withHybrid = [
+  const withFuture = [
     ...CONTROLLER_STACKS,
-    { id: 'hybrid', label: 'Hybrid', available: true },
+    { id: 'future-lidar', label: 'Future Lidar', available: true },
   ];
-  renderMapStackChips(container, withHybrid, { activeId: 'photoreal', doc });
+  renderMapStackChips(container, withFuture, { activeId: 'photoreal', doc });
 
-  assert.equal(container.children.length, 5);
-  assert.doesNotMatch(container.children.map(chipText).join(' '), /Hybrid/);
+  assert.equal(container.children.length, 7);
+  assert.doesNotMatch(
+    container.children.map(chipText).join(' '),
+    /Future Lidar/,
+  );
 });
 
 test('re-rendering replaces the previous chips instead of stacking a second row', () => {
@@ -192,7 +221,7 @@ test('clicking a chip dispatches that stack id — the same selection the dropdo
     doc,
   });
 
-  container.children[4].click();
+  container.children[6].click();
   container.children[3].click();
   container.children[1].click();
   assert.deepEqual(selected, ['osm', 'esri-imagery', 'bing-aerial']);
@@ -230,12 +259,12 @@ test('the lit chip tracks controller state, not the click', () => {
   // A rejected/superseded switch reports the stack that is genuinely active.
   syncMapStackChips(container, 'photoreal');
   assert.ok(container.children[0].classList.contains('active'));
-  assert.equal(container.children[4].getAttribute('aria-pressed'), 'false');
+  assert.equal(container.children[6].getAttribute('aria-pressed'), 'false');
 
   // A landed switch moves both the class and the pressed state.
   syncMapStackChips(container, 'osm');
-  assert.ok(container.children[4].classList.contains('active'));
-  assert.equal(container.children[4].getAttribute('aria-pressed'), 'true');
+  assert.ok(container.children[6].classList.contains('active'));
+  assert.equal(container.children[6].getAttribute('aria-pressed'), 'true');
   assert.ok(!container.children[0].classList.contains('active'));
   assert.equal(container.children[0].getAttribute('aria-pressed'), 'false');
 });

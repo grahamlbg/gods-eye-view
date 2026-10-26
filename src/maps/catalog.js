@@ -31,6 +31,24 @@ export const MAP_STACKS = [
     requiresIon: false,
   },
   {
+    id: 'nasa-night',
+    label: 'NASA Night',
+    shortLabel: 'Night',
+    description:
+      '2016 NASA Black Marble; regional-scale imagery, not live lights',
+    kind: 'nasa-night',
+    requiresIon: false,
+  },
+  {
+    id: 'hybrid-day-night',
+    label: 'Day / Night',
+    shortLabel: 'Hybrid',
+    description:
+      'Live sunlit Esri imagery with NASA Black Marble on the night side',
+    kind: 'hybrid-day-night',
+    requiresIon: false,
+  },
+  {
     id: 'osm',
     label: 'OSM',
     shortLabel: 'OSM',

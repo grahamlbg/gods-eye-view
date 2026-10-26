@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as Cesium from 'cesium';
 import { MapSourceController } from './controller.js';
 import { createDefaultMapSources } from './defaultSources.js';
 
@@ -25,8 +26,14 @@ function fixture(registry, options = {}) {
     removed = [],
     changes = [];
   const viewer = {
+    clock: {
+      clockStep: Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER,
+      shouldAnimate: false,
+      multiplier: 1,
+      currentTime: null,
+    },
     scene: {
-      globe: { show: true },
+      globe: { show: true, enableLighting: false },
       requestRender() {},
       frameState: {
         creditDisplay: {
@@ -154,6 +161,42 @@ test('repeated Esri shot handoffs retain imagery and keep tile fallback live', a
   assert.equal(env.controller.getActiveId(), 'osm');
   assert.equal(env.removed.length, 1);
   assert.equal(errors.size, 0);
+  env.controller.destroy();
+});
+
+test('hybrid keeps a live night overlay and restores globe settings on exit', async () => {
+  const env = publicFixture();
+  // A real Clock catches setters that silently demote SYSTEM_CLOCK back to
+  // SYSTEM_CLOCK_MULTIPLIER when currentTime is assigned afterward.
+  env.viewer.clock = new Cesium.Clock({ shouldAnimate: false });
+  const nightProvider = { id: 'black-marble', destroy() {} };
+  env.registry.sources.find(
+    ({ descriptor }) => descriptor.id === 'hybrid-day-night',
+  ).nightImagery = async () => nightProvider;
+  await env.controller.setStack('hybrid-day-night');
+  assert.equal(env.imagery.length, 2);
+  assert.equal(env.imagery[0].provider.id, 'hybrid-day-night');
+  assert.equal(env.imagery[1].provider, nightProvider);
+  assert.equal(env.imagery[1].dayAlpha, 0);
+  assert.equal(env.imagery[1].nightAlpha, 1);
+  assert.equal(env.viewer.scene.globe.enableLighting, true);
+  assert.equal(env.viewer.clock.clockStep, Cesium.ClockStep.SYSTEM_CLOCK);
+  assert.equal(env.viewer.clock.shouldAnimate, true);
+  const [dayLayer, nightLayer] = env.imagery;
+  await env.controller.setStack('hybrid-day-night');
+  assert.deepEqual(env.imagery, [dayLayer, nightLayer]);
+  await env.controller.setStack('esri-imagery');
+  assert.equal(env.imagery.length, 1);
+  assert.equal(env.viewer.scene.globe.enableLighting, false);
+  assert.equal(
+    env.viewer.clock.clockStep,
+    Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER,
+  );
+  assert.equal(env.viewer.clock.shouldAnimate, false);
+  assert.equal(
+    env.removed.filter(({ value }) => value === nightLayer).length,
+    1,
+  );
   env.controller.destroy();
 });
 

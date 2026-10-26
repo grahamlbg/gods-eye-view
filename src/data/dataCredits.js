@@ -153,6 +153,13 @@ export const DATA_CREDITS = [
       '<a href="https://lpdaac.usgs.gov/products/hlss30v002/" target="_blank" rel="noopener">HLS product page</a>',
   },
   {
+    key: 'nasa-night',
+    html:
+      'NASA Night map: VIIRS Black Marble annual 2016 composite via ' +
+      '<a href="https://gibs.earthdata.nasa.gov" target="_blank" rel="noopener">NASA GIBS</a>. ' +
+      'Historical regional-scale night lights, not live street lighting.',
+  },
+  {
     key: 'wfigs',
     html:
       'Wildfire perimeters: ' +

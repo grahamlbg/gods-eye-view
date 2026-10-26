@@ -4,6 +4,7 @@ import { keySetupRequirement } from '../keySetupCore.mjs';
 import {
   createOsmImagery,
   createEsriImagery,
+  createNasaNightImagery,
   createIonImagery,
   ESRI_ATTRIBUTION_HTML,
 } from './imagery.js';
@@ -47,13 +48,25 @@ export function createDefaultMapSources({
       const imagery =
         descriptor.kind === 'ion'
           ? () => createIonImagery(descriptor.style, ionToken)
-          : descriptor.id === 'osm'
-            ? createOsmImagery
-            : createEsriImagery;
+          : descriptor.kind === 'nasa-night'
+            ? createNasaNightImagery
+            : descriptor.id === 'osm'
+              ? createOsmImagery
+              : createEsriImagery;
       return {
         ...common,
         imagery,
         terrain,
+        ...(descriptor.kind === 'hybrid-day-night'
+          ? {
+              imagery: createEsriImagery,
+              nightImagery: createNasaNightImagery,
+              credit: ESRI_ATTRIBUTION_HTML,
+              // Cesium's day/night imagery alpha shader is bypassed when the
+              // terrain supplies vertex normals. Use the no-normals terrain.
+              terrain: { id: 'keyless', create: createKeylessTerrain },
+            }
+          : {}),
         ...(descriptor.id === 'esri-imagery'
           ? {
               credit: ESRI_ATTRIBUTION_HTML,

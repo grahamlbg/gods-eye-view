@@ -1,5 +1,12 @@
 # Changelog
 
+- Add a live Day / Night globe source with Esri daylight imagery and NASA Black
+  Marble lights faded across the solar boundary. The mode restores the prior
+  clock and globe-lighting settings when another map is selected.
+
+- Add a keyless NASA Night map source using the fixed 2016 VIIRS Black Marble
+  composite, capped at GIBS tile level 8 and labelled as historical imagery.
+
 - Treat explicitly current, complete empty vessel coverage as a successful update,
   clearing obsolete contacts while retaining stale or incomplete snapshots.
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
-import { createIonImagery } from './imagery.js';
+import { createIonImagery, createNasaNightImagery } from './imagery.js';
 import { createWorldTerrain, createKeylessTerrain } from './terrain.js';
 import { createDefaultMapSources } from './defaultSources.js';
 
@@ -89,7 +89,7 @@ test('imagery and terrain pass their own ion token without relying on SDK defaul
       calls.push({ kind: 'terrain', resource, options });
       return { id: 'terrain' };
     };
-    await createIonImagery(Cesium.IonWorldImageryStyle.AERIAL, 'imagery-token');
+    await createIonImagery(12345, 'imagery-token');
     const result = await createWorldTerrain('terrain-token');
     assert.equal(calls[0].options.accessToken, 'imagery-token');
     assert.equal(calls[1].options.accessToken, 'terrain-token');
@@ -102,6 +102,75 @@ test('imagery and terrain pass their own ion token without relying on SDK defaul
     Cesium.IonResource.fromAssetId = originalResource;
     Cesium.CesiumTerrainProvider.fromUrl = originalTerrain;
   }
+});
+
+test('Bing ion imagery requests HTTPS tiles and keeps ion and Bing credits', async (t) => {
+  const requests = [];
+  const bingCredit = new Cesium.Credit('Bing tile credit', true);
+  t.mock.method(Cesium.Resource.prototype, 'fetchJson', async function () {
+    requests.push({ url: this.url, token: this.queryParameters.access_token });
+    return {
+      type: 'IMAGERY',
+      externalType: 'BING',
+      options: { url: 'https://dev.virtualearth.net', key: 'bing-fixture' },
+      attributions: [{ html: 'Ion credit', collapsible: false }],
+    };
+  });
+  t.mock.method(
+    Cesium.BingMapsImageryProvider,
+    'fromUrl',
+    async (url, options) => {
+      requests.push({ url, options });
+      return { getTileCredits: () => [bingCredit] };
+    },
+  );
+  for (const style of [
+    Cesium.IonWorldImageryStyle.AERIAL,
+    Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS,
+  ]) {
+    const provider = await createIonImagery(style, 'ion-fixture');
+    assert.deepEqual(
+      provider.getTileCredits(0, 0, 0).map((credit) => credit.html),
+      ['Ion credit', 'Bing tile credit'],
+    );
+    assert.equal(requests.at(-2).token, 'ion-fixture');
+    assert.equal(requests.at(-1).options.tileProtocol, 'https');
+  }
+});
+
+test('NASA Night uses the fixed 2016 GIBS imagery at its published resolution', () => {
+  const provider = createNasaNightImagery();
+  assert.equal(provider.maximumLevel, 8);
+  assert.match(
+    provider.url,
+    /VIIRS_Black_Marble\/default\/2016-01-01\/GoogleMapsCompatible_Level8/,
+  );
+  assert.match(provider.credit.html, /NASA GIBS.*2016/);
+  const source = createDefaultMapSources().sources.find(
+    ({ descriptor }) => descriptor.id === 'nasa-night',
+  );
+  assert.equal(source.available, true);
+  assert.equal(source.descriptor.requiresIon, false);
+  assert.equal(source.imagery().maximumLevel, 8);
+});
+
+test('Hybrid pairs keyless daytime Esri with NASA night imagery', () => {
+  const source = createDefaultMapSources().sources.find(
+    ({ descriptor }) => descriptor.id === 'hybrid-day-night',
+  );
+  assert.equal(source.available, true);
+  assert.equal(source.descriptor.requiresIon, false);
+  assert.equal(typeof source.nightImagery, 'function');
+  assert.equal(source.nightImagery().maximumLevel, 8);
+  assert.match(source.credit, /Powered by Esri/);
+  assert.equal(source.terrain.id, 'keyless');
+  assert.equal(source.terrain.create, createKeylessTerrain);
+  assert.equal(
+    createDefaultMapSources({ cesiumToken: 'ion-fixture' }).sources.find(
+      ({ descriptor }) => descriptor.id === 'hybrid-day-night',
+    ).terrain.id,
+    'keyless',
+  );
 });
 
 test('cancellation after ion metadata prevents terrain construction', async () => {
