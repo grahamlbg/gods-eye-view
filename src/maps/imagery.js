@@ -59,6 +59,9 @@ async function createBingIonImagery(style, accessToken) {
   ) {
     throw new Error('Ion world imagery did not return a Bing imagery endpoint');
   }
+  // Bing otherwise follows the page's HTTP scheme on localhost. Resolve its
+  // ion-issued credentials through public APIs so tiles use HTTPS without
+  // weakening CSP, changing SDK defaults or touching provider internals.
   const { url, ...options } = endpoint.options;
   const provider = await Cesium.BingMapsImageryProvider.fromUrl(url, {
     ...options,

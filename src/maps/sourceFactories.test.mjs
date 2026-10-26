@@ -104,38 +104,160 @@ test('imagery and terrain pass their own ion token without relying on SDK defaul
   }
 });
 
-test('Bing ion imagery requests HTTPS tiles and keeps ion and Bing credits', async (t) => {
-  const requests = [];
+test('both Bing ion stacks use HTTPS and retain ion and per-tile attribution', async (t) => {
+  const defaultToken = Cesium.Ion.defaultAccessToken;
+  const metadataCalls = [];
+  const bingCalls = [];
+  const perTileCalls = [];
   const bingCredit = new Cesium.Credit('Bing tile credit', true);
+  const endpoint = {
+    type: 'IMAGERY',
+    externalType: 'BING',
+    options: Object.freeze({
+      url: 'https://dev.virtualearth.net',
+      key: 'ion-issued-bing-fixture',
+      mapStyle: 'Aerial',
+      tileProtocol: 'http',
+    }),
+    attributions: [
+      { html: 'Ion required credit', collapsible: false },
+      { html: 'Ion optional credit', collapsible: true },
+    ],
+  };
   t.mock.method(Cesium.Resource.prototype, 'fetchJson', async function () {
-    requests.push({ url: this.url, token: this.queryParameters.access_token });
+    metadataCalls.push({
+      url: this.url,
+      token: this.queryParameters.access_token,
+    });
+    const mapStyle = this.url.includes(
+      `/assets/${Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS}/`,
+    )
+      ? 'AerialWithLabels'
+      : 'Aerial';
     return {
-      type: 'IMAGERY',
-      externalType: 'BING',
-      options: { url: 'https://dev.virtualearth.net', key: 'bing-fixture' },
-      attributions: [{ html: 'Ion credit', collapsible: false }],
+      ...endpoint,
+      options: Object.freeze({ ...endpoint.options, mapStyle }),
     };
   });
+  t.mock.method(Cesium.IonImageryProvider, 'fromAssetId', () =>
+    assert.fail('Bing must not inherit the local HTTP page protocol'),
+  );
   t.mock.method(
     Cesium.BingMapsImageryProvider,
     'fromUrl',
     async (url, options) => {
-      requests.push({ url, options });
-      return { getTileCredits: () => [bingCredit] };
+      bingCalls.push({ url, options });
+      const provider = {
+        errorEvent: new Cesium.Event(),
+        getTileCredits(x, y, level) {
+          assert.equal(this, provider);
+          perTileCalls.push([x, y, level]);
+          return level === 0 ? undefined : [bingCredit];
+        },
+      };
+      return provider;
     },
   );
   for (const style of [
     Cesium.IonWorldImageryStyle.AERIAL,
     Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS,
   ]) {
-    const provider = await createIonImagery(style, 'ion-fixture');
+    const provider = await createIonImagery(style, ' own-ion-token ');
+    const credits = provider.getTileCredits(3, 4, 5);
     assert.deepEqual(
-      provider.getTileCredits(0, 0, 0).map((credit) => credit.html),
-      ['Ion credit', 'Bing tile credit'],
+      credits.map(({ html, showOnScreen }) => ({ html, showOnScreen })),
+      [
+        { html: 'Ion required credit', showOnScreen: true },
+        { html: 'Ion optional credit', showOnScreen: false },
+        { html: 'Bing tile credit', showOnScreen: true },
+      ],
     );
-    assert.equal(requests.at(-2).token, 'ion-fixture');
-    assert.equal(requests.at(-1).options.tileProtocol, 'https');
+    assert.equal(credits[2], bingCredit);
+    assert.equal(provider.getTileCredits(0, 0, 0).length, 2);
+    assert.ok(provider.errorEvent instanceof Cesium.Event);
+    assert.equal(metadataCalls.at(-1).token, 'own-ion-token');
+    const requested = new URL(metadataCalls.at(-1).url);
+    assert.equal(requested.origin, 'https://api.cesium.com');
+    assert.equal(requested.pathname, `/v1/assets/${style}/endpoint`);
   }
+  assert.deepEqual(perTileCalls, [
+    [3, 4, 5],
+    [0, 0, 0],
+    [3, 4, 5],
+    [0, 0, 0],
+  ]);
+  assert.equal(bingCalls.length, 2);
+  for (const [index, { url, options }] of bingCalls.entries()) {
+    assert.equal(url, 'https://dev.virtualearth.net');
+    assert.deepEqual(options, {
+      key: 'ion-issued-bing-fixture',
+      mapStyle: index === 0 ? 'Aerial' : 'AerialWithLabels',
+      tileProtocol: 'https',
+    });
+  }
+  assert.equal(endpoint.options.tileProtocol, 'http');
+  assert.equal(Cesium.Ion.defaultAccessToken, defaultToken);
+});
+
+test('Bing ion metadata and construction failures propagate without another source', async (t) => {
+  const style = Cesium.IonWorldImageryStyle.AERIAL;
+  const metadataError = new Error('ion metadata fixture failure');
+  const providerError = new Error('Bing construction fixture failure');
+  let metadata = () => {
+    throw metadataError;
+  };
+  let bingCalls = 0;
+  t.mock.method(Cesium.Resource.prototype, 'fetchJson', async () => metadata());
+  t.mock.method(Cesium.BingMapsImageryProvider, 'fromUrl', async () => {
+    bingCalls += 1;
+    throw providerError;
+  });
+  t.mock.method(Cesium.IonImageryProvider, 'fromAssetId', () =>
+    assert.fail('Bing failures must not silently use an alternate provider'),
+  );
+  await assert.rejects(createIonImagery(style, 'test-token'), metadataError);
+  for (const endpoint of [
+    undefined,
+    {
+      type: 'TERRAIN',
+      externalType: 'BING',
+      options: { url: 'https://example.test' },
+    },
+    {
+      type: 'IMAGERY',
+      externalType: 'OTHER',
+      options: { url: 'https://example.test' },
+    },
+    { type: 'IMAGERY', externalType: 'BING', options: {} },
+  ]) {
+    metadata = () => endpoint;
+    await assert.rejects(
+      createIonImagery(style, 'test-token'),
+      /Bing imagery endpoint/,
+    );
+  }
+  assert.equal(bingCalls, 0);
+  metadata = () => ({
+    type: 'IMAGERY',
+    externalType: 'BING',
+    options: { url: 'https://dev.virtualearth.net', key: 'bing-fixture' },
+  });
+  await assert.rejects(createIonImagery(style, 'test-token'), providerError);
+  assert.equal(bingCalls, 1);
+});
+
+test('other ion imagery assets keep the standard SDK factory', async (t) => {
+  const expected = {};
+  const calls = [];
+  t.mock.method(Cesium.Resource.prototype, 'fetchJson', () =>
+    assert.fail('generic assets must use the SDK ion factory'),
+  );
+  t.mock.method(Cesium.IonImageryProvider, 'fromAssetId', async (...args) => {
+    calls.push(args);
+    return expected;
+  });
+  assert.equal(await createIonImagery(12345, ' custom-token '), expected);
+  assert.deepEqual(calls, [[12345, { accessToken: 'custom-token' }]]);
 });
 
 test('NASA Night uses the fixed 2016 GIBS imagery at its published resolution', () => {
@@ -229,4 +351,14 @@ test('both Google 3D routes keep tiles drawing while draped imagery loads', asyn
   assert.equal(calls[1][0].accessToken, 'token');
   assert.equal(calls[1][1].asynchronouslyLoadImagery, true);
   assert.equal(calls[1][1].enableCollision, true);
+});
+
+test('unreachable keyless terrain falls back to flat terrain marked as a fallback', async (t) => {
+  t.mock.method(Cesium.CesiumTerrainProvider, 'fromUrl', async () => {
+    throw new Error('layer.json unreachable');
+  });
+  t.mock.method(console, 'warn', () => {});
+  const result = await createKeylessTerrain();
+  assert.ok(result.provider instanceof Cesium.EllipsoidTerrainProvider);
+  assert.equal(result.fallback, true);
 });
